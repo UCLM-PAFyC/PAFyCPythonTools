@@ -1,0 +1,33 @@
+crop monitoring
+---------------
+
+ndvi, kmeans
+--input_crops_frames_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\vines_frames_initial.shp" --method_data ndvi --method_segmentation  kmeans --kmeans_clusters 6 --input_orthomosaic "D:\PAFyCToolsGui\20230630_Tarazona_MULTI_Vid\ORT-303-RFL-Tarazona_Vid_20230630_25830_4cm.tif" --blue_band_position 1 --green_band_position 2 --red_band_position 3 --nir_band_position 5 --soil_maximum_rgb_reflectance 0.08  --crop_minimum_value 0.5 --factor_to_reflectance 1.0 --output_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\vines_frames_initial_ndvi_kmeans.shp" --date_from_orthomosaic_file=1 --orthomosaic_file_string_separator="_" --orthomosaic_file_date_string_position=3 --date_format="%Y%m%d" --date=none
+
+ndvi, percentile
+--input_crops_frames_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\vines_frames_initial.shp" --method_data ndvi --method_segmentation  percentile --percentile_minimum_threshold 0.05 --input_orthomosaic "D:\PAFyCToolsGui\20230630_Tarazona_MULTI_Vid\ORT-303-RFL-Tarazona_Vid_20230630_25830_4cm.tif" --blue_band_position 1 --green_band_position 2 --red_band_position 3 --nir_band_position 5 --soil_maximum_rgb_reflectance 0.08  --crop_minimum_value 0.5 --factor_to_reflectance 1.0 --output_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\vines_frames_initial_ndvi_percentile.shp" --date_from_orthomosaic_file=1 --orthomosaic_file_string_separator="_" --orthomosaic_file_date_string_position=3 --date_format="%Y%m%d" --date=none
+
+gcc_or_vol, gcc, kmeans
+--input_crops_frames_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\vines_frames_gcc_vol_allDates.shp" --method_data gcc --crop_minimum_value 0.02 --method_segmentation  kmeans --kmeans_clusters 6 --input_field "220905_gcc" --output_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\vines_frames_gcc_vol_allDates_gcc_kmeans.shp" --date_format="%Y%m%d"
+
+gcc_or_vol, gcc, percentile
+--input_crops_frames_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\vines_frames_gcc_vol_allDates.shp" --method_data gcc --crop_minimum_value 0.02 --method_segmentation  percentile --percentile_minimum_threshold 0.05 --input_field "220905_gcc" --output_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\vines_frames_gcc_vol_allDates_gcc_percentile.shp" --date_format="%Y%m%d"
+
+gcc_or_vol, vol, kmeans
+--input_crops_frames_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\vines_frames_gcc_vol_allDates.shp" --method_data vol --crop_minimum_value 0.1 --method_segmentation  kmeans --kmeans_clusters 6 --input_field "220812_vol" --output_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\vines_frames_gcc_vol_allDates_vol_kmeans.shp" --date_format="%Y%m%d"
+
+gcc_or_vol, vol, percentile
+--input_crops_frames_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\vines_frames_gcc_vol_allDates.shp" --method_data vol --crop_minimum_value 0.1 --method_segmentation  percentile --percentile_minimum_threshold 0.05 --input_field "220812_vol" --output_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\vines_frames_gcc_vol_allDates_vol_kmeans.shp" --date_format="%Y%m%d"
+
+
+
+
+crops_characterization
+----------------------
+--input_crops_frames_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\test\vines_frames.shp" --input_dsm "D:\PAFyCToolsGui\20220603_Tarazona_RGB_Vid\input\DSM-103-RGB_Tarazona_Vid_20220603_25830_2cm.tif" --input_dtm "D:\PAFyCToolsGui\20220603_Tarazona_RGB_Vid\input\DEM-103-RGB_Tarazona_Vid_20220603_25830_2cm.tif" --crop_minimum_height 0.05 --output_shp "D:\PAFyCToolsGui\2022_Tarazona.shp" --compute_GCC=1 --compute_volume=1 --date_from_dem_files=1 --dem_files_string_separator="_" --dem_files_date_string_position=4 --date_format="%Y%m%d" --date=none
+
+--input_crops_frames_shp "D:\PAFyCToolsGui\20220426_Tarazona_Vid_A6000\output\test\vines_frames.shp" --input_dsm "D:\PAFyCToolsGui\20220603_Tarazona_RGB_Vid\input\DSM-103-RGB_Tarazona_Vid_20220603_25830_2cm.tif" --input_dtm "D:\PAFyCToolsGui\20220603_Tarazona_RGB_Vid\input\DEM-103-RGB_Tarazona_Vid_20220603_25830_2cm.tif" --crop_minimum_height 0.05 --output_shp "none" --compute_GCC=1 --compute_volume=1 --date_from_dem_files=1 --dem_files_string_separator="_" --dem_files_date_string_position=4 --date_format="%Y%m%d" --date=none
+
+
+fallo mamh 20230907 
+--input_crops_frames_shp "D:/PAFyCToolsGui/20230907_mmh/Marcos_export.shp" --input_dsm "D:/PAFyCToolsGui/20230907_mmh/DSM20220603.tif" --input_dtm "D:/PAFyCToolsGui/20230907_mmh/DEM20220603.tif" --crop_minimum_height 0.05 --output_shp "none" --compute_GCC 1 --compute_volume 1 --date_from_dem_files 0 --dem_files_string_separator="_" --dem_files_date_string_position=4 --date_format="%%Y%%m%%d" --date="20220603"
