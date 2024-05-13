@@ -1,7 +1,6 @@
 # authors:
 # David Hernandez Lopez, david.hernandez@uclm.es
 # Miguel Angel Moreno Hidalgo, miguelangel.moreno@uclm.es
-# Diego Guerrero Sevilla, diego.guerrero@uclm.es
 
 import optparse
 import numpy
@@ -744,7 +743,7 @@ def main():
             return
         input_orthomosaic = options.input_orthomosaic
         if not exists(input_orthomosaic):
-            print("Error:\nInput orthomosaic does not exists:\n{}".format(input_shp))
+            print("Error:\nInput orthomosaic does not exists:\n{}".format(input_orthomosaic))
             return
         if not options.blue_band_position:
             parser.print_help()
