@@ -524,7 +524,8 @@ def process_ndvi(input_shp,
                                                  None, criteria, 10, flags)
         pos_center_min_value = -1
         center_min_value = 100000000.
-        for i in range(6):
+        # for i in range(6):
+        for i in range(kmeans_clusters):
             if centers[i] < center_min_value:
                 center_min_value = centers[i]
                 pos_center_min_value = i
