@@ -40,6 +40,7 @@ def is_number(n):
 
 
 def process(input_orthomosaic,
+            input_roi_shapefile,
             factor_to_reflectance,
             bands_to_use,
             red_band_number,
@@ -47,7 +48,8 @@ def process(input_orthomosaic,
             minimum_ndvi,
             maximum_ndvi,
             minimum_explained_variance,
-            max_number_of_kmeans_clusters):
+            max_number_of_kmeans_clusters,
+            minimum_classification_area):
     str_error = None
     if not exists(input_orthomosaic):
         str_error = "Function process"
@@ -73,6 +75,13 @@ def process(input_orthomosaic,
     xSize =orthomosaic_ds.RasterXSize
     ySize = orthomosaic_ds.RasterYSize
     geotransform = orthomosaic_ds.GetGeoTransform()
+    gsd_x = abs(geotransform[1])
+    gsd_y = abs(geotransform[5])
+    gsd = gsd_x
+    median_filter_number_of_pixels = ceil(minimum_classification_area / gsd)
+    if median_filter_number_of_pixels % 2 == 0:
+        median_filter_number_of_pixels = median_filter_number_of_pixels + 1
+    median_filter_position = round((median_filter_number_of_pixels ** 2 + 1) / 2)
     projection = orthomosaic_ds.GetProjection()
     for band_number in bands_to_use:
         if band_number > orthomosaic_number_of_bands or band_number < 1:
@@ -91,6 +100,7 @@ def process(input_orthomosaic,
         values_by_band[nir_band_number] = band.ReadAsArray() # rows, columns
     rows, columns = values_by_band[red_band_number].shape
     valid_indexes = []
+    invalid_indexes = []
     fileformat = "GTiff"
     driver = gdal.GetDriverByName(fileformat)
     output_path = os.path.dirname(os.path.abspath(input_orthomosaic))
@@ -109,17 +119,19 @@ def process(input_orthomosaic,
     dst_ds_ndvi_mask.SetGeoTransform(geotransform)
     dst_ds_ndvi_mask.SetProjection(projection)
     np_raster_ndvi_mask = np.zeros((ySize, xSize), dtype=np.uint8)
-    # for row in range(100):#range(rows):
+    # for row in range(400):#range(rows):
     for row in range(rows):
-        # for column in range(100):#range(columns):
+        # for column in range(400):#range(columns):
         for column in range(columns):
             red_value = values_by_band[red_band_number][row][column] * factor_to_reflectance
             nir_value = values_by_band[nir_band_number][row][column] * factor_to_reflectance
             ndvi_value = (nir_value - red_value) / (nir_value + red_value)
+            index = [row, column]
             if ndvi_value >= minimum_ndvi and ndvi_value <= maximum_ndvi:
-                valid_index = [row, column]
-                valid_indexes.append(valid_index)
+                valid_indexes.append(index)
                 np_raster_ndvi_mask[row][column] = 1
+            else:
+                invalid_indexes.append(index)
             np_raster_ndvi[row][column] = ndvi_value
     # dst_ds_ndvi.GetRasterBand(1).SetNoDataValue(0)
     dst_ds_ndvi.GetRasterBand(1).WriteArray(np_raster_ndvi)
@@ -150,7 +162,7 @@ def process(input_orthomosaic,
         explained_variance_by_selected_components = (explained_variance_by_selected_components
                                                      + explained_variance[number_of_pca_components])
         number_of_pca_components = number_of_pca_components + 1
-    # number_of_pca_components = 2
+    number_of_pca_components = 1
     reduced_data = np.matmul(standardized_data, sorted_eigenvectors[:, :number_of_pca_components])  # transform the original data
     standardized_data = None
     criteria = (cv.TERM_CRITERIA_MAX_ITER, 100, 1.0)
@@ -172,11 +184,75 @@ def process(input_orthomosaic,
         dst_ds = driver.Create(dst_filename, xsize=xSize, ysize=ySize, bands=1, eType=gdal.GDT_Byte)
         dst_ds.SetGeoTransform(geotransform)
         dst_ds.SetProjection(projection)
-        np_raster = np.zeros((ySize, xSize), dtype=np.uint8)
+        # np_raster = np.zeros((ySize, xSize), dtype=np.uint8)
+        np_raster = np.full((ySize, xSize), 0, dtype=np.uint8)
         for i in range(len(valid_indexes)):
             row = valid_indexes[i][0]
             column = valid_indexes[i][1]
             np_raster[row][column] = labels[i] + 1
+        np_raster = cv.medianBlur(np_raster, median_filter_number_of_pixels)
+        for i in range(len(invalid_indexes)):
+            row = invalid_indexes[i][0]
+            column = invalid_indexes[i][1]
+            np_raster[row][column] = 0
+        # for i in range(len(valid_indexes)):
+        #     row = valid_indexes[i][0]
+        #     column = valid_indexes[i][1]
+        #     first_row = row - median_filter_number_of_pixels
+        #     if first_row < 0:
+        #         first_row = 0
+        #     last_row = row + median_filter_number_of_pixels
+        #     if last_row > ySize:
+        #         last_row = ySize
+        #     first_column = column - median_filter_number_of_pixels
+        #     if first_column < 0:
+        #        first_column = 0
+        #     last_column = column + median_filter_number_of_pixels
+        #     if last_column > xSize:
+        #         last_column = xSize
+        #     values = []
+        #     for ii in range(first_row, last_row):
+        #         for jj in range(first_column, last_column):
+        #             value = np_raster[ii][jj]
+        #             if value != 255:
+        #                 values.append(value)
+        #     if len(values) > 1:
+        #         values.sort()
+        #         if len(values) % 2 == 0:
+        #             median_filter_position = round(len(values) / 2)
+        #         else:
+        #             median_filter_position = ceil(len(values) / 2.)
+        #         median_value = values[median_filter_position - 1]
+        #         np_raster[row][column] = median_value
+
+        # first_row = 0
+        # while first_row < ySize:
+        #     last_row = first_row + median_filter_number_of_pixels - 1
+        #     if last_row > (ySize-1):
+        #         last_row = ySize - 1
+        #     first_column = 0
+        #     while first_column < xSize:
+        #         last_column = first_column + median_filter_number_of_pixels - 1
+        #         if last_column > (xSize - 1):
+        #             last_column = xSize - 1
+        #         values = []
+        #         for row in range(first_row, last_row + 1):
+        #             for column in range(first_column, last_column + 1):
+        #                 value = np_raster[row][column]
+        #                 if value != 255:
+        #                     values.append(np_raster[row][column])
+        #         if len(values) > 1:
+        #             values.sort()
+        #             if len(values) % 2 == 0:
+        #                 median_filter_position = round(len(values) / 2)
+        #             else:
+        #                 median_filter_position = ceil(len(values) / 2.)
+        #             median_value = values[median_filter_position - 1]
+        #             for row in range(first_row, last_row + 1):
+        #                 for column in range(first_column, last_column + 1):
+        #                     np_raster[row][column] = median_value
+        #         first_column = first_column + median_filter_number_of_pixels
+        #     first_row = first_row + median_filter_number_of_pixels
         dst_ds.GetRasterBand(1).SetNoDataValue(0)
         dst_ds.GetRasterBand(1).WriteArray(np_raster)
         dst_ds = None
@@ -187,6 +263,7 @@ def process(input_orthomosaic,
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_orthomosaic", help="Input orthomosaic",type=str)
+    parser.add_argument("--input_roi_shapefile", help="Input input_roi_shapefile",type=str)
     parser.add_argument("--factor_to_reflectance", type=float,
                         help="Multiplicative factor for convert raster values to reflectance")
     parser.add_argument("--bands_to_use", nargs="+", type=int, help="Bands to use, starting 1")
@@ -198,6 +275,8 @@ def main():
                         help="Minimmum explained variance by PCA components, in range [0,1]")
     parser.add_argument("--max_number_of_kmeans_clusters", type=int,
                         help="Maximum number of clusters in Kmeans classification process")
+    parser.add_argument("--minimum_classification_area", type=float,
+                        help="Minimum classification area, in meters")
     args = parser.parse_args()
     if not args.input_orthomosaic:
         parser.print_help()
@@ -205,6 +284,13 @@ def main():
     input_orthomosaic = args.input_orthomosaic
     if not exists(input_orthomosaic):
         print("Error:\nInput orthomosaic does not exists:\n{}".format(input_orthomosaic))
+        return
+    if not args.input_roi_shapefile:
+        parser.print_help()
+        return
+    input_roi_shapefile = args.input_roi_shapefile
+    if not exists(input_roi_shapefile):
+        print("Error:\nInput ROI shapefile does not exists:\n{}".format(input_roi_shapefile))
         return
     if not args.factor_to_reflectance:
         parser.print_help()
@@ -237,8 +323,12 @@ def main():
         parser.print_help()
         return
     max_number_of_kmeans_clusters = args.max_number_of_kmeans_clusters
+    if not args.minimum_classification_area:
+        parser.print_help()
+    minimum_classification_area = args.minimum_classification_area
 
     str_error = process(input_orthomosaic,
+                        input_roi_shapefile,
                         factor_to_reflectance,
                         bands_to_use,
                         red_band_number,
@@ -246,7 +336,8 @@ def main():
                         minimum_ndvi,
                         maximum_ndvi,
                         minimum_explained_variance,
-                        max_number_of_kmeans_clusters)
+                        max_number_of_kmeans_clusters,
+                        minimum_classification_area)
     if str_error:
         print("Error:\n{}".format(str_error))
         return
