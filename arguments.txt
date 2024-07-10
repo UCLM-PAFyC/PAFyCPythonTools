@@ -1,6 +1,9 @@
 soil zoning based reflectivity
 ------------------------------
---input_orthomosaic "D:\PAFyCToolsGui\20240709_SoilZoningBaseReflectivity\OrtoSeleccion_recortada.tif" --input region_of_interest_shapefile "D:\PAFyCToolsGui\20240709_SoilZoningBaseReflectivity\Limites_parcela_Hotel.shp" --factor_to_reflectance 3.051757812500000e-05 --bands_to_use 1 2 4 5 6 --red_band_number 4 --nir_band_number 6 --minimum_ndvi 0.001 --maximum_ndvi 0.15 --minimum_explained_variance 0.8 --max_number_of_kmeans_clusters 5 --minimum_classification_area 5.0
+--input_orthomosaic "D:\PAFyCToolsGui\20240709_SoilZoningBaseReflectivity\OrtoSeleccion_recortada.tif" --no_data_value 65535 --input_rois_shp "D:\PAFyCToolsGui\20240709_SoilZoningBaseReflectivity\Limites_parcela_Hotel_dhl.shp" --factor_to_reflectance 3.051757812500000e-05 --bands_to_use 1 2 4 5 6 --red_band_number 4 --nir_band_number 6 --minimum_ndvi -1.0 --maximum_ndvi 0.15 --minimum_explained_variance 0.8 --only_one_principal_component 1 --max_number_of_kmeans_clusters 5 --minimum_classification_area 5.0
+
+--input_orthomosaic "D:\PAFyCToolsGui\20240709_SoilZoningBaseReflectivity\OrtoSeleccion_recortada.tif" --factor_to_reflectance 3.051757812500000e-05 --bands_to_use 1 2 4 5 6 --red_band_number 4 --nir_band_number 6 --minimum_ndvi 0.001 --maximum_ndvi 0.15 --minimum_explained_variance 0.8 --only_one_principal_component 1 --max_number_of_kmeans_clusters 5 --minimum_classification_area 5.0
+
 
 crop water stress index
 -----------------------
