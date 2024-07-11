@@ -82,6 +82,12 @@ def process(input_orthomosaic,
         str_error = "Function process"
         str_error += "\nNir band number is greather than orthomosaic number of bands"
         return str_error
+    for band_number in bands_to_use:
+        if band_number > orthomosaic_number_of_bands or band_number < 1:
+            str_error = "Function process"
+            str_error += ("\nBand to use number: {} is out of valid number for orthomosaic number of bands"
+                          .format(str(band_number)))
+            return str_error
     xSize = orthomosaic_ds.RasterXSize
     ySize = orthomosaic_ds.RasterYSize
     orthomosaic_geotransform = orthomosaic_ds.GetGeoTransform()
@@ -115,235 +121,92 @@ def process(input_orthomosaic,
     orthomosaic_pixel_width = orthomosaic_geotransform[1]
     orthomosaic_pixel_height = orthomosaic_geotransform[5]
     values_by_band = {}
-    no_data_values_by_band = {}
-    for band_number in bands_to_use:
-        if band_number > orthomosaic_number_of_bands or band_number < 1:
-            str_error = "Function process"
-            str_error += ("\nBand to use number: {} is out of valid number for orthomosaic number of bands"
-                          .format(str(band_number)))
-            return str_error
-        band = orthomosaic_ds.GetRasterBand(band_number)
-        no_data_value = band.GetNoDataValue()
-        no_data_values_by_band[band_number] = no_data_value
-        values_by_band[band_number] = band.ReadAsArray()  # rows, columns
-    if not red_band_number in values_by_band:
-        band = orthomosaic_ds.GetRasterBand(red_band_number)
-        values_by_band[red_band_number] = band.ReadAsArray()  # rows, columns
-    if not nir_band_number in values_by_band:
-        band = orthomosaic_ds.GetRasterBand(nir_band_number)
-        values_by_band[nir_band_number] = band.ReadAsArray()  # rows, columns
+    band_red = orthomosaic_ds.GetRasterBand(red_band_number)
+    band_red_no_data_value = band_red.GetNoDataValue()
+    band_red_data = band_red.ReadAsArray()
+    band_redmasked_data = np.ma.masked_where(band_red_data == band_red_no_data_value, band_red_data)
+    band_redindexes_without_no_data_value = band_redmasked_data.nonzero()
+    columns_by_row = {}
+    for i in range(len(band_redindexes_without_no_data_value[0])):
+        row = band_redindexes_without_no_data_value[0][i]
+        column = band_redindexes_without_no_data_value[1][i]
+        if not row in columns_by_row:
+            columns_by_row[row] = []
+        columns_by_row[row].append(column)
+    band_redmasked_data = None
+    band_redindexes_without_no_data_value = None
+    band_nir = orthomosaic_ds.GetRasterBand(nir_band_number)
+    band_nir_no_data_value = band_nir.GetNoDataValue()
+    band_nir_data = band_nir.ReadAsArray()
     valid_indexes = []
     invalid_indexes = []
-    if input_shp:
-        driver = ogr.GetDriverByName('ESRI Shapefile')
-        in_vec_ds = None
-        try:
-            in_vec_ds = driver.Open(input_shp, 1)  # 0 means read-only. 1 means writeable.
-        except ValueError:
-            str_error = "Function process"
-            str_error += "\nError opening dataset file:\n{}".format(input_shp)
-            return str_error
-        in_layer = in_vec_ds.GetLayer()
-        in_crs = in_layer.GetSpatialRef()
-        in_crs_wkt = in_crs.ExportToWkt()
-        in_geometry_type = in_layer.GetGeomType()
-        if in_geometry_type != ogr.wkbPolygon \
-                and in_geometry_type != ogr.wkbMultiPolygon \
-                and in_geometry_type != ogr.wkbPolygonM and in_geometry_type != ogr.wkbPolygonZM:
-            str_error = "Function process"
-            str_error += "\nNot Polygon geometry type in file:\n{}".format(input_shp)
-            return str_error
-        in_layer_definition = in_layer.GetLayerDefn()
-        number_of_features = in_layer.GetFeatureCount()
-        features_indexes = np.full((ySize * xSize, 2), -1, dtype=np.compat.long)
-        index_pos = -1
-        for feature in in_layer:
-            plot_geometry_full = feature.GetGeometryRef().Clone()
-            crs_transform = None
-            if in_crs_wkt != orthomosaic_crs_wkt:
-                crs_transform = osr.CoordinateTransformation(in_crs, orthomosaic_crs)
-            if crs_transform:
-                plot_geometry_full.Transform(crs_transform)
-            plot_geometry = None
-            if orthomosaic_poly.Overlaps(plot_geometry_full):
-                plot_geometry = plot_geometry_full.Intersection(orthomosaic_poly)
-            if orthomosaic_poly.Contains(plot_geometry_full):
-                plot_geometry = plot_geometry_full
-            if orthomosaic_poly.Within(plot_geometry_full):
-                plot_geometry = orthomosaic_poly
-            if not plot_geometry:
-                continue
-            plot_geometry = plot_geometry_full.Intersection(orthomosaic_poly)
-            plot_geometry_area = plot_geometry.GetArea()
-            if plot_geometry_area < (3 * orthomosaic_pixel_area):
-                continue
-            geom_points_x = []
-            geom_points_y = []
-            geom_type_name = plot_geometry.GetGeometryName().lower()
-            if "multipolygon" in geom_type_name:
-                for i in range(0, plot_geometry.GetGeometryCount()):
-                    ring = plot_geometry.GetGeometryRef(i).GetGeometryRef(0)
-                    numpoints = ring.GetPointCount()
-                    for p in range(numpoints):
-                        fc, sc, tc = ring.GetPoint(p)
-                        geom_points_x.append(fc)
-                        geom_points_y.append(sc)
-            elif "polygon" in geom_type_name:
-                ring = plot_geometry.GetGeometryRef(0)
-                numpoints = ring.GetPointCount()
-                for p in range(numpoints):
-                    fc, sc, tc = ring.GetPoint(p)
-                    geom_points_x.append(fc)
-                    geom_points_y.append(sc)
-            else:
-                # sys.exit("ERROR: Geometry needs to be either Polygon or Multipolygon")
-                continue
-            plot_geom_x_min = min(geom_points_x)
-            plot_geom_x_max = max(geom_points_x)
-            plot_geom_y_min = min(geom_points_y)
-            plot_geom_y_max = max(geom_points_y)
-            # Specify offset and rows and columns to read
-            rs_x_off = int((plot_geom_x_min - orthomosaic_x_origin) / rs_pixel_width)
-            rs_y_off = int((orthomosaic_y_origin - plot_geom_y_max) / rs_pixel_width)
-            x_ul = orthomosaic_x_origin + rs_x_off * rs_pixel_width
-            y_ul = orthomosaic_y_origin - rs_y_off * rs_pixel_width
-            rs_x_count = int((plot_geom_x_max - plot_geom_x_min) / rs_pixel_width) + 1
-            rs_y_count = int((plot_geom_y_max - plot_geom_y_min) / rs_pixel_width) + 1
-            # Create memory target raster
-            target_orthomosaic = gdal.GetDriverByName('MEM').Create('', rs_x_count, rs_y_count, 1, gdal.GDT_Byte)
-            target_orthomosaic.SetGeoTransform((
-                plot_geom_x_min, rs_pixel_width, 0,
-                plot_geom_y_max, 0, rs_pixel_height,
-            ))
-            # Create for target raster the same projection as for the value raster
-            raster_srs = osr.SpatialReference()
-            raster_srs.ImportFromWkt(orthomosaic_ds.GetProjectionRef())
-            target_orthomosaic.SetProjection(raster_srs.ExportToWkt())
-            target_orthomosaic.SetProjection(raster_srs.ExportToWkt())
-            feature_drv = ogr.GetDriverByName('ESRI Shapefile')
-            feature_ds = feature_drv.CreateDataSource("/vsimem/memory_name.shp")
-            # geometryType = plot_geometry.getGeometryType()
-            feature_layer = feature_ds.CreateLayer("layer", orthomosaic_crs,
-                                                   geom_type=plot_geometry.GetGeometryType())
-            featureDefnHeaders = feature_layer.GetLayerDefn()
-            out_feature = ogr.Feature(featureDefnHeaders)
-            out_feature.SetGeometry(plot_geometry)
-            feature_layer.CreateFeature(out_feature)
-            feature_ds.FlushCache()
-            # Rasterize zone polygon to raster blue
-            gdal.RasterizeLayer(target_orthomosaic, [1], feature_layer, burn_values=[1])
-            feature_orthomosaic_band_mask = target_orthomosaic.GetRasterBand(1)
-            feature_orthomosaic_data_mask = (feature_orthomosaic_band_mask.ReadAsArray(0, 0,
-                                                                                       rs_x_count, rs_y_count)
-                                             .astype(float))
-            # Mask zone of raster blue
-            band = orthomosaic_ds.GetRasterBand(1)
-            feature_orthomosaic_data = (band.ReadAsArray(rs_x_off, rs_y_off, rs_x_count, rs_y_count)
-                                        .astype(float))
-            feature_raster_array = np.ma.masked_array(feature_orthomosaic_data,
-                                                      np.logical_not(feature_orthomosaic_data_mask))
-            orthomosaic_first_indexes, orthomosaic_second_indexes = feature_raster_array.nonzero()
-            for i in range(len(orthomosaic_first_indexes)):
-                fi = orthomosaic_first_indexes[i]
-                si = orthomosaic_second_indexes[i]
-                index_pos = index_pos + 1
-                features_indexes[index_pos][0] = fi + rs_y_off
-                features_indexes[index_pos][1] = si + rs_x_off
-        for i in range(index_pos + 1):
-            row = features_indexes[i][0]
-            column = features_indexes[i][1]
-            red_value = values_by_band[red_band_number][row][column]
-            nir_value = values_by_band[nir_band_number][row][column]
-            index = [row, column]
-            if no_data_values_by_band[red_band_number]:
-                if red_value == no_data_values_by_band[red_band_number]:
-                    invalid_indexes.append(index)
-                    continue
-            if no_data_values_by_band[nir_band_number]:
-                if nir_value == no_data_values_by_band[nir_band_number]:
-                    invalid_indexes.append(index)
-                    continue
-            red_value = red_value * factor_to_reflectance
-            nir_value = nir_value * factor_to_reflectance
+    print('Filtering by NDVI value ...', flush=True)
+    for row in columns_by_row:
+        for j in range(len(columns_by_row[row])):
+            column = columns_by_row[row][j]
+            red_value = band_red_data[row][column] * factor_to_reflectance
+            nir_value = band_nir_data[row][column] * factor_to_reflectance
             ndvi_value = (nir_value - red_value) / (nir_value + red_value)
+            index = [row, column]
             if ndvi_value >= minimum_ndvi and ndvi_value <= maximum_ndvi:
                 valid_indexes.append(index)
-                # np_raster_ndvi_mask[row][column] = 1
             else:
                 invalid_indexes.append(index)
-            # np_raster_ndvi[row][column] = ndvi_value
-    else:
-        rows, columns = values_by_band[red_band_number].shape
-        # for row in range(400):#range(rows):
-        for row in range(rows):
-            # for column in range(400):#range(columns):
-            for column in range(columns):
-                red_value = values_by_band[red_band_number][row][column]
-                nir_value = values_by_band[nir_band_number][row][column]
-                index = [row, column]
-                if no_data_values_by_band[red_band_number]:
-                    if red_value == no_data_values_by_band[red_band_number]:
-                        invalid_indexes.append(index)
-                        continue
-                if no_data_values_by_band[nir_band_number]:
-                    if nir_value == no_data_values_by_band[nir_band_number]:
-                        invalid_indexes.append(index)
-                        continue
-                red_value = red_value * factor_to_reflectance
-                nir_value = nir_value * factor_to_reflectance
-                ndvi_value = (nir_value - red_value) / (nir_value + red_value)
-                if ndvi_value >= minimum_ndvi and ndvi_value <= maximum_ndvi:
-                    valid_indexes.append(index)
-                    # np_raster_ndvi_mask[row][column] = 1
-                else:
-                    invalid_indexes.append(index)
-                # np_raster_ndvi[row][column] = ndvi_value
-
-    # fileformat = "GTiff"
-    # driver = gdal.GetDriverByName(fileformat)
-    # output_path = os.path.dirname(os.path.abspath(input_orthomosaic))
-    # var_path = Path(input_orthomosaic)
-    # base_name = var_path.stem
-    # file_ext = '.tif'
-    # dst_filename_ndvi = (output_path + '/' + base_name + '_ndvi' + file_ext)
-    # dst_filename_ndvi = os.path.normpath(dst_filename_ndvi)
-    # dst_ds_ndvi = driver.Create(dst_filename_ndvi, xsize=xSize, ysize=ySize, bands=1, eType=gdal.GDT_Float32)
-    # dst_ds_ndvi.SetGeoTransform(orthomosaic_geotransform)
-    # dst_ds_ndvi.SetProjection(projection)
-    # np_raster_ndvi = np.zeros((ySize, xSize), dtype=np.float32)
-    # dst_filename_ndvi_mask = (output_path + '/' + base_name + '_ndvi_mask' + file_ext)
-    # dst_filename_ndvi_mask = os.path.normpath(dst_filename_ndvi_mask)
-    # dst_ds_ndvi_mask = driver.Create(dst_filename_ndvi_mask, xsize=xSize, ysize=ySize, bands=1, eType=gdal.GDT_Byte)
-    # dst_ds_ndvi_mask.SetGeoTransform(orthomosaic_geotransform)
-    # dst_ds_ndvi_mask.SetProjection(projection)
-    # np_raster_ndvi_mask = np.zeros((ySize, xSize), dtype=np.uint8)
-    # # for row in range(400):#range(rows):
-    # for row in range(rows):
-    #     # for column in range(400):#range(columns):
-    #     for column in range(columns):
-    #         red_value = values_by_band[red_band_number][row][column] * factor_to_reflectance
-    #         nir_value = values_by_band[nir_band_number][row][column] * factor_to_reflectance
-    #         ndvi_value = (nir_value - red_value) / (nir_value + red_value)
-    #         index = [row, column]
-    #         if ndvi_value >= minimum_ndvi and ndvi_value <= maximum_ndvi:
-    #             valid_indexes.append(index)
-    #             np_raster_ndvi_mask[row][column] = 1
-    #         else:
-    #             invalid_indexes.append(index)
-    #         np_raster_ndvi[row][column] = ndvi_value
-    # # dst_ds_ndvi.GetRasterBand(1).SetNoDataValue(0)
-    # dst_ds_ndvi.GetRasterBand(1).WriteArray(np_raster_ndvi)
-    # dst_ds_ndvi_mask.GetRasterBand(1).WriteArray(np_raster_ndvi_mask)
-    # dst_ds_ndvi = None
-    # dst_ds_ndvi_mask = None
-
+    print('   ... Process finished', flush=True)
     data = np.zeros((len(valid_indexes), len(bands_to_use)))
-    for i in range(len(valid_indexes)):
-        row = valid_indexes[i][0]
-        column = valid_indexes[i][1]
-        for j in range(len(bands_to_use)):
-            data[i][j] = values_by_band[bands_to_use[j]][row][column] * factor_to_reflectance
-    values_by_band = None
+    invalid_positions_in_valid_indexes = []
+    for j in range(len(bands_to_use)):
+        band_number = bands_to_use[j]
+        print('Getting data for band {} ...'.format(band_number), flush=True)
+        band_data = None
+        band_no_data_value = None
+        if band_number == red_band_number:
+            band_data = band_red_data
+            band_no_data_value = band_red_no_data_value
+        elif band_number == nir_band_number:
+            band_data = band_nir_data
+            band_no_data_value = band_nir_no_data_value
+        else:
+            band = orthomosaic_ds.GetRasterBand(band_number)
+            band_no_data_value = band.GetNoDataValue()
+            band_data = band.ReadAsArray()  # rows, columns
+        for i in range(len(valid_indexes)):
+            if i in invalid_positions_in_valid_indexes:
+                continue
+            row = valid_indexes[i][0]
+            column = valid_indexes[i][1]
+            value = band_data[row][column]
+            if value == band_no_data_value:
+                index = [row, column]
+                invalid_positions_in_valid_indexes.append(i)
+            data[i][j] = value * factor_to_reflectance
+        print('   ... Process finished', flush=True)
+    band_red_data = None
+    band_nir_data = None
+    if len(invalid_positions_in_valid_indexes) > 0:
+        print('Removing pixels with no data value in some band ...', flush=True)
+        valid_indexes_with_out_outliers = []
+        data_without_outliers = np.zeros((len(valid_indexes) - len(invalid_positions_in_valid_indexes),
+                                          len(bands_to_use)))
+        pos = -1
+        for i in range(len(valid_indexes)):
+            if i in invalid_positions_in_valid_indexes:
+                continue
+            pos = pos + 1
+            row = valid_indexes[i][0]
+            column = valid_indexes[i][1]
+            for j in range(len(bands_to_use)):
+                data_without_outliers[pos][j] = data[i][j]
+            index = [row, column]
+            valid_indexes_with_out_outliers.append(index)
+        data = None
+        valid_indexes = None
+        data = data_without_outliers
+        valid_indexes = valid_indexes_with_out_outliers
+        data_without_outliers = None
+        valid_indexes_with_out_outliers = None
+        print('   ... Process finished', flush=True)
+    print('Computing principal components and transforming data values to new base ...', flush=True)
     standardized_data = (data - data.mean(axis=0)) / data.std(axis=0)
     data = None
     covariance_matrix = np.cov(standardized_data, ddof=1, rowvar=False)
@@ -372,6 +235,7 @@ def process(input_orthomosaic,
     for i in range(len(valid_indexes)):
         for j in range(number_of_pca_components):
             input_values_cv[i][j] = reduced_data[i][j]
+    print('   ... Process finished', flush=True)
     mse = {}
     fileformat = "GTiff"
     driver = gdal.GetDriverByName(fileformat)
@@ -380,6 +244,7 @@ def process(input_orthomosaic,
     base_name = var_path.stem
     file_ext = '.tif'
     for kmeans_clusters in range(1, max_number_of_kmeans_clusters + 1):
+        print('Computing results for {} clusters ...'.format(str(kmeans_clusters)), flush=True)
         compactness, labels, centers = cv.kmeans(input_values_cv, kmeans_clusters,
                                                  None, criteria, 10, flags)
         mse[kmeans_clusters] = compactness / len(valid_indexes)
@@ -405,6 +270,7 @@ def process(input_orthomosaic,
         dst_ds.GetRasterBand(1).SetNoDataValue(0)
         dst_ds.GetRasterBand(1).WriteArray(np_raster)
         dst_ds = None
+        print('   ... Process finished', flush=True)
     return str_error
 
 
@@ -428,6 +294,7 @@ def clip_raster(input_raster,
     output_raster = os.path.splitext(input_raster)[0]
     output_raster = output_raster + "_rois"
     output_raster = output_raster + os.path.splitext(input_raster)[1]
+    # return str_error, output_raster
     if exists(output_raster):
         try:
             os.remove(output_raster)
@@ -463,6 +330,7 @@ def clip_raster(input_raster,
     gdalwarp_str_options += " "
     gdalwarp_str_options += "{:.12f}".format(gsd_y)
     gdalwarp_str_options += " -co COMPRESS=LZW"
+    print('Clipping raster ...', flush=True)
     try:
         output_raster_ds = gdal.Warp(output_raster, input_raster_ds, options = gdalwarp_str_options)
     except Exception as e:
@@ -473,6 +341,7 @@ def clip_raster(input_raster,
         str_error = ('Handled warning: level={}, no={}, msg={}'.format(
                 err.err_level, err.err_no, err.err_msg))
         return str_error, output_raster
+    print('   ... Process finished', flush=True)
     return str_error, output_raster
 
 
@@ -582,7 +451,7 @@ def main():
     if str_error:
         print("Error:\n{}".format(str_error))
         return
-    print("... Process finished")
+    print("... Process finished", flush=True)
 
 
 if __name__ == '__main__':
