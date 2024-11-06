@@ -364,6 +364,19 @@ def process_ndvi(input_shp,
     output_field_id_index = in_layer_definition.GetFieldIndex(output_field_name)
     if output_field_id_index == -1:
         in_layer.CreateField(ogr.FieldDefn(output_field_name, ogr.OFTInteger))#ogr.OFTReal))
+
+    # cambio
+    output_field_ndvi_name = str_date
+    output_field_ndvi_name = output_field_ndvi_name + '_' + 'ni'
+    if kmeans_clusters > -1:
+        output_field_ndvi_name = output_field_ndvi_name + 'k'
+    else:
+        output_field_ndvi_name = output_field_ndvi_name + 'p'
+    output_field_ndvi_id_index = in_layer_definition.GetFieldIndex(output_field_ndvi_name)
+    if output_field_ndvi_id_index == -1:
+        in_layer.CreateField(ogr.FieldDefn(output_field_ndvi_name, ogr.OFTReal))
+    # cambio
+
     for feature in in_layer:
         print('Processing plant: {}, of {}'.format(str(cont_feature + 1),
                                                    str(number_of_features)))
@@ -532,6 +545,7 @@ def process_ndvi(input_shp,
         cont_feature = 0
         for feature in in_layer:
             damaged = 0
+            ndvi = -1
             if not cont_feature in position_in_input_values_by_feature_position:
                 damaged = -1
             else:
@@ -539,8 +553,10 @@ def process_ndvi(input_shp,
                 pos_center = labels[position_in_input_values_by_feature_position[cont_feature]][0]
                 if pos_center == pos_center_min_value:
                     damaged = 1
+                ndvi = input_values[position_in_input_values_by_feature_position[cont_feature]]['value']
             cont_feature = cont_feature + 1
             feature.SetField(output_field_name, damaged)
+            feature.SetField(output_field_ndvi_name, ndvi)
             in_layer.SetFeature(feature)
     else:
         input_values.sort(key=sortFunction)
@@ -556,13 +572,16 @@ def process_ndvi(input_shp,
         cont_feature = 0
         for feature in in_layer:
             damaged = 0
+            ndvi = -1
             if not cont_feature in position_in_input_values_by_feature_position:
                 damaged = -1
             else:
                 if cont_feature in damage_positions:
                     damaged = 1
+                ndvi = input_values[position_in_input_values_by_feature_position[cont_feature]]['value']
             cont_feature = cont_feature + 1
             feature.SetField(output_field_name, damaged)
+            feature.SetField(output_field_ndvi_name, ndvi)
             in_layer.SetFeature(feature)
     in_vec_ds = None
     return str_error
