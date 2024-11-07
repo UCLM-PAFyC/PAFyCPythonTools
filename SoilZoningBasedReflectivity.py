@@ -55,7 +55,8 @@ def process(input_orthomosaic,
             minimum_explained_variance,
             only_one_principal_component,
             max_number_of_kmeans_clusters,
-            minimum_classification_area):
+            minimum_classification_area,
+            output_path):
     str_error = None
     if input_shp:
         if not exists(input_shp):
@@ -239,7 +240,8 @@ def process(input_orthomosaic,
     mse = {}
     fileformat = "GTiff"
     driver = gdal.GetDriverByName(fileformat)
-    output_path = os.path.dirname(os.path.abspath(input_orthomosaic))
+    if not output_path:
+        output_path = os.path.dirname(os.path.abspath(input_orthomosaic))
     var_path = Path(input_orthomosaic)
     base_name = var_path.stem
     file_ext = '.tif'
@@ -276,10 +278,15 @@ def process(input_orthomosaic,
 
 def clip_raster(input_raster,
                 input_shp,
-                no_data_value):
+                no_data_value,
+                output_path):
     str_error = None
     output_raster_suffix = ''
-    output_raster = os.path.splitext(input_raster)[0]
+    if not output_path:
+        output_path = os.path.dirname(os.path.abspath(input_raster))
+    raster_base_name = os.path.basename(input_raster).split('.')[0]
+    output_raster = output_path + '\\' + raster_base_name
+    # output_raster = os.path.splitext(input_raster)[0]
     output_raster = output_raster + "_rois"
     output_raster = output_raster + os.path.splitext(input_raster)[1]
     if not exists(input_shp):
@@ -290,10 +297,6 @@ def clip_raster(input_raster,
         str_error = "Function clip_raster"
         str_error += "\nNot exists file: {}".format(input_raster)
         return str_error, output_raster
-    output_raster_suffix = ''
-    output_raster = os.path.splitext(input_raster)[0]
-    output_raster = output_raster + "_rois"
-    output_raster = output_raster + os.path.splitext(input_raster)[1]
     # return str_error, output_raster
     if exists(output_raster):
         try:
@@ -366,6 +369,8 @@ def main():
                         help="Maximum number of clusters in Kmeans classification process")
     parser.add_argument("--minimum_classification_area", type=float,
                         help="Minimum classification area, in meters")
+    parser.add_argument("--output_path", type=str,
+                        help="Output path or empty for multispectral orthomosaic path")
     args = parser.parse_args()
     if not args.input_orthomosaic:
         parser.print_help()
@@ -427,10 +432,16 @@ def main():
     if not args.minimum_classification_area:
         parser.print_help()
     minimum_classification_area = args.minimum_classification_area
+    output_path = args.output_path
+    if output_path:
+        if not exists(output_path):
+            print("Error:\nOutput path does not exists:\n{}".format(output_path))
+            return
     if input_rois_shp:
         str_error, input_orthomosaic_rois = clip_raster(input_orthomosaic,
                                                         input_rois_shp,
-                                                        no_data_value)
+                                                        no_data_value,
+                                                        output_path)
         if str_error:
             print("Error:\n{}".format(str_error))
             return
@@ -447,7 +458,8 @@ def main():
                         minimum_explained_variance,
                         only_one_principal_component,
                         max_number_of_kmeans_clusters,
-                        minimum_classification_area)
+                        minimum_classification_area,
+                        output_path)
     if str_error:
         print("Error:\n{}".format(str_error))
         return
