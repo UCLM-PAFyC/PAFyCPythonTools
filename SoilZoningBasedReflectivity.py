@@ -368,7 +368,7 @@ def main():
     parser.add_argument("--max_number_of_kmeans_clusters", type=int,
                         help="Maximum number of clusters in Kmeans classification process")
     parser.add_argument("--minimum_classification_area", type=float,
-                        help="Minimum classification area, in meters")
+                        help="Minimum classification area, in square meters")
     parser.add_argument("--output_path", type=str,
                         help="Output path or empty for multispectral orthomosaic path")
     args = parser.parse_args()
