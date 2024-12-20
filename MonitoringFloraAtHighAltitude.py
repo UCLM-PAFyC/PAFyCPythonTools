@@ -245,7 +245,7 @@ def process(input_orthomosaic,
     for i in range(len(valid_indexes)):
         row = valid_indexes[i][0]
         column = valid_indexes[i][1]
-        n_cluster = labels[i] + 1
+        n_cluster = labels[i].item() + 1
         if row in ndvi_valid_values_by_row:
             if column in ndvi_valid_values_by_row[row]:
                 if not n_cluster in ndvi_by_cluster:
@@ -260,6 +260,7 @@ def process(input_orthomosaic,
                 ndvi_by_cluster[n_cluster]['values_rows'].append(row)
                 ndvi_by_cluster[n_cluster]['values_columns'].append(column)
                 ndvi_by_cluster[n_cluster]['mean'] = ndvi_by_cluster[n_cluster]['mean'] + ndvi_value
+    output_grid_by_column_by_row = {}
     for n_cluster in ndvi_by_cluster:
         number_of_values = len(ndvi_by_cluster[n_cluster]['values'])
         ndvi_by_cluster[n_cluster]['mean'] = ndvi_by_cluster[n_cluster]['mean'] / float(number_of_values)
@@ -267,10 +268,26 @@ def process(input_orthomosaic,
             ndvi_mean_value = ndvi_by_cluster[n_cluster]['mean']
             for i_ndvi_value in range(len(ndvi_by_cluster[n_cluster]['values'])):
                 ndvi_value = ndvi_by_cluster[n_cluster]['values'][i_ndvi_value]
+                ndvi_column = ndvi_by_cluster[n_cluster]['values_columns'][i_ndvi_value]
+                ndvi_row = ndvi_by_cluster[n_cluster]['values_columns'][i_ndvi_value]
+                x_coord = ndvi_column * gsd_x + ulx + (gsd_x / 2.)  # add half the cell size
+                y_coord = uly - ndvi_row * gsd_y - (gsd_y / 2.)  # to centre the point
+                grid_column = math.floor((x_coord - math.floor(ulx)) / grid_spacing)
+                # grid_row = math.floor((x_coord - math.ceil(uly)) / grid_spacing)
+                grid_row = math.floor((math.ceil(uly) - y_coord) / grid_spacing)
+                if not grid_column in output_grid_by_column_by_row:
+                    output_grid_by_column_by_row[grid_column] = {}
+                if not grid_row in output_grid_by_column_by_row[grid_column]:
+                    output_grid_by_column_by_row[grid_column][grid_row] = {}
+                if not n_cluster in output_grid_by_column_by_row[grid_column][grid_row]:
+                    output_grid_by_column_by_row[grid_column][grid_row][n_cluster] = 0
+                output_grid_by_column_by_row[grid_column][grid_row][n_cluster] = (
+                        output_grid_by_column_by_row[grid_column][grid_row][n_cluster] + 1)
                 ndvi_diff_value = ndvi_value - ndvi_mean_value
                 ndvi_by_cluster[n_cluster]['std'] = ndvi_by_cluster[n_cluster]['std'] + ndvi_diff_value ** 2.
-            ndvi_by_cluster[n_cluster]['std'] = math.sqrt(ndvi_by_cluster[n_cluster]['sts'] / number_of_values)
+            ndvi_by_cluster[n_cluster]['std'] = math.sqrt(ndvi_by_cluster[n_cluster]['std'] / number_of_values)
     cluster_descending_order_position = []
+    position_in_vector_descending_order_by_cluster = {}
     for n_cluster in ndvi_by_cluster:
         max_mean_ndvi_value = 0.
         n_cluster_max_mean_ndvi_value = -1
@@ -280,6 +297,8 @@ def process(input_orthomosaic,
             if  ndvi_by_cluster[n_cluster_bis]['mean'] > max_mean_ndvi_value:
                 max_mean_ndvi_value = ndvi_by_cluster[n_cluster_bis]['mean']
                 n_cluster_max_mean_ndvi_value = n_cluster_bis
+        position_in_vector_descending_order_by_cluster[n_cluster_max_mean_ndvi_value] \
+            = len(cluster_descending_order_position)
         cluster_descending_order_position.append(n_cluster_max_mean_ndvi_value)
     fileformat = "GTiff"
     driver = gdal.GetDriverByName(fileformat)
@@ -292,8 +311,8 @@ def process(input_orthomosaic,
         n_cluster = cluster_descending_order_position[i_n_cluster]
         str_mean = str(int(round(ndvi_by_cluster[n_cluster]['mean'] * 100)))
         str_std = str(int(round(ndvi_by_cluster[n_cluster]['std'] * 100)))
-        dst_filename = (output_path + '/' + base_name + '_' + '_nckms_' + str(i_n_cluster + 1)
-                        + '_mean_' + str_mean + file_ext + '_std_' + str_std + file_ext)
+        dst_filename = (output_path + '/' + base_name + '_nckms_' + str(i_n_cluster+1)
+                        + '_mean_' + str_mean + '_std_' + str_std + file_ext)
         dst_filename = os.path.normpath(dst_filename)
         dst_ds = driver.Create(dst_filename, xsize=xSize, ysize=ySize, bands=1, eType=gdal.GDT_Byte)
         dst_ds.SetGeoTransform(orthomosaic_geotransform)
@@ -308,6 +327,74 @@ def process(input_orthomosaic,
         dst_ds.GetRasterBand(1).SetNoDataValue(0)
         dst_ds.GetRasterBand(1).WriteArray(np_raster)
         dst_ds = None
+    outShapefile = (output_path + '/' + base_name + '_grid.shp')
+    outShapefile = os.path.normpath(outShapefile)
+    outDriver = ogr.GetDriverByName("ESRI Shapefile")
+    # Remove output shapefile if it already exists
+    if os.path.exists(outShapefile):
+        outDriver.DeleteDataSource(outShapefile)
+    # Create the output shapefile
+    outDataSource = outDriver.CreateDataSource(outShapefile)
+    outLayer = outDataSource.CreateLayer("grid", orthomosaic_crs, ogr.wkbPolygon)
+    idField = ogr.FieldDefn("id", ogr.OFTInteger)
+    outLayer.CreateField(idField)
+    fractionCoverField = ogr.FieldDefn("frac_cover",ogr.OFTReal)
+    indexField = ogr.FieldDefn("index",ogr.OFTReal)
+    for i_n_cluster in range(len(cluster_descending_order_position)):
+        cluster_percentage_field_name = "cl_fc_" + str(i_n_cluster + 1)
+        cluster_percentage_Field = ogr.FieldDefn(cluster_percentage_field_name, ogr.OFTReal)
+        cluster_index_field_name = "cl_idx_" + str(i_n_cluster + 1)
+        cluster_index_Field = ogr.FieldDefn(cluster_index_field_name, ogr.OFTReal)
+    feature_count = 0
+    number_of_pixels_in_grid = (grid_spacing * grid_spacing) / (gsd_x * gsd_y)
+    for grid_column in output_grid_by_column_by_row:
+        for grid_row in output_grid_by_column_by_row[grid_column]:
+            featureDefn = outLayer.GetLayerDefn()
+            feature = ogr.Feature(featureDefn)
+            ring = ogr.Geometry(ogr.wkbLinearRing)
+            grid_ul_x = math.floor(ulx) + grid_column * grid_spacing
+            grid_ul_y = math.ceil(uly) - grid_row * grid_spacing
+            grid_ur_x = math.floor(ulx) + (grid_column + 1) * grid_spacing
+            grid_ur_y = math.ceil(uly) - grid_row * grid_spacing
+            grid_lr_x = math.floor(ulx) + (grid_column + 1) * grid_spacing
+            grid_lr_y = math.ceil(uly) - (grid_row + 1) * grid_spacing
+            grid_ll_x = math.floor(ulx) + grid_column * grid_spacing
+            grid_ll_y = math.ceil(uly) - (grid_row + 1) * grid_spacing
+            ring.AddPoint(grid_ul_x, grid_ul_y)
+            ring.AddPoint(grid_ur_x, grid_ur_y)
+            ring.AddPoint(grid_lr_x, grid_lr_y)
+            ring.AddPoint(grid_ll_x, grid_ll_y)
+            ring.AddPoint(grid_ul_x, grid_ul_y)
+            poly = ogr.Geometry(ogr.wkbPolygon)
+            poly.AddGeometry(ring)
+            feature.SetGeometry(poly)
+            feature_count = feature_count + 1
+            feature.SetField("id", feature_count)
+            number_of_pixels_in_clusters = 0
+            for n_cluster in output_grid_by_column_by_row[grid_column][grid_row]:
+                ordered_cluster = position_in_vector_descending_order_by_cluster[n_cluster]
+                number_of_pixels_in_clusters = (number_of_pixels_in_clusters
+                                                + output_grid_by_column_by_row[grid_column][grid_row][n_cluster])
+            # fraction_cover = (number_of_pixels_in_clusters * xSize * ySize) / (grid_spacing * grid_spacing) * 100.
+            fraction_cover = number_of_pixels_in_clusters / number_of_pixels_in_grid * 100.
+            feature.SetField("frac_cover", fraction_cover)
+            index = 0
+            for n_cluster in output_grid_by_column_by_row[grid_column][grid_row]:
+                ordered_cluster = position_in_vector_descending_order_by_cluster[n_cluster]
+                # percentage_pixels_in_cluster = (output_grid_by_column_by_row[grid_column][n_cluster]
+                #                                 / number_of_pixels_in_clusters * 100.)
+                percentage_pixels_in_cluster = (output_grid_by_column_by_row[grid_column][grid_row][n_cluster]
+                                                / number_of_pixels_in_grid * 100.)
+                index_in_cluster = weight_factor_by_cluster[ordered_cluster - 1] * percentage_pixels_in_cluster
+                index = index + index_in_cluster
+                cluster_percentage_field_name = "cl_fc_" + str(ordered_cluster)
+                cluster_index_field_name = "cl_idx_" + str(ordered_cluster)
+                feature.SetField(cluster_percentage_field_name, cluster_percentage_field_name)
+                feature.SetField(cluster_index_field_name, index_in_cluster)
+            feature.SetField("index", index)
+            outLayer.CreateFeature(feature)
+            feature = None
+        outDataSource = None
     print('   ... Process finished', flush=True)
     return str_error
 
