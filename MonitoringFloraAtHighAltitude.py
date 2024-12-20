@@ -138,6 +138,7 @@ def process(input_orthomosaic,
     valid_indexes = []
     invalid_indexes = []
     print('Filtering by NDVI value ...', flush=True)
+    ndvi_valid_values_by_row = {}
     for row in columns_by_row:
         for j in range(len(columns_by_row[row])):
             column = columns_by_row[row][j]
@@ -147,6 +148,9 @@ def process(input_orthomosaic,
             index = [row, column]
             if ndvi_value >= minimum_ndvi:
                 valid_indexes.append(index)
+                if not row in ndvi_valid_values_by_row:
+                    ndvi_valid_values_by_row[row] = {}
+                ndvi_valid_values_by_row[row][column] = ndvi_value
             else:
                 invalid_indexes.append(index)
     print('   ... Process finished', flush=True)
@@ -180,7 +184,7 @@ def process(input_orthomosaic,
         print('   ... Process finished', flush=True)
     band_red_data = None
     band_nir_data = None
-    max_number_of_kmeans_clusters = len(weight_factor_by_cluster)
+    number_of_kmeans_clusters = len(weight_factor_by_cluster)
     if len(invalid_positions_in_valid_indexes) > 0:
         print('Removing pixels with no data value in some band ...', flush=True)
         valid_indexes_with_out_outliers = []
@@ -234,7 +238,49 @@ def process(input_orthomosaic,
         for j in range(number_of_pca_components):
             input_values_cv[i][j] = reduced_data[i][j]
     print('   ... Process finished', flush=True)
-    mse = {}
+    print('Computing results for {} clusters ...'.format(str(number_of_kmeans_clusters)), flush=True)
+    compactness, labels, centers = cv.kmeans(input_values_cv, number_of_kmeans_clusters,
+                                             None, criteria, 10, flags)
+    ndvi_by_cluster = {}
+    for i in range(len(valid_indexes)):
+        row = valid_indexes[i][0]
+        column = valid_indexes[i][1]
+        n_cluster = labels[i] + 1
+        if row in ndvi_valid_values_by_row:
+            if column in ndvi_valid_values_by_row[row]:
+                if not n_cluster in ndvi_by_cluster:
+                    ndvi_by_cluster[n_cluster] = {}
+                    ndvi_by_cluster[n_cluster]['values'] = []
+                    ndvi_by_cluster[n_cluster]['values_rows'] = []
+                    ndvi_by_cluster[n_cluster]['values_columns'] = []
+                    ndvi_by_cluster[n_cluster]['mean'] = 0.
+                    ndvi_by_cluster[n_cluster]['std'] = 0.
+                ndvi_value = ndvi_valid_values_by_row[row][column]
+                ndvi_by_cluster[n_cluster]['values'].append(ndvi_value)
+                ndvi_by_cluster[n_cluster]['values_rows'].append(row)
+                ndvi_by_cluster[n_cluster]['values_columns'].append(column)
+                ndvi_by_cluster[n_cluster]['mean'] = ndvi_by_cluster[n_cluster]['mean'] + ndvi_value
+    for n_cluster in ndvi_by_cluster:
+        number_of_values = len(ndvi_by_cluster[n_cluster]['values'])
+        ndvi_by_cluster[n_cluster]['mean'] = ndvi_by_cluster[n_cluster]['mean'] / float(number_of_values)
+        if number_of_values > 1:
+            ndvi_mean_value = ndvi_by_cluster[n_cluster]['mean']
+            for i_ndvi_value in range(len(ndvi_by_cluster[n_cluster]['values'])):
+                ndvi_value = ndvi_by_cluster[n_cluster]['values'][i_ndvi_value]
+                ndvi_diff_value = ndvi_value - ndvi_mean_value
+                ndvi_by_cluster[n_cluster]['std'] = ndvi_by_cluster[n_cluster]['std'] + ndvi_diff_value ** 2.
+            ndvi_by_cluster[n_cluster]['std'] = math.sqrt(ndvi_by_cluster[n_cluster]['sts'] / number_of_values)
+    cluster_descending_order_position = []
+    for n_cluster in ndvi_by_cluster:
+        max_mean_ndvi_value = 0.
+        n_cluster_max_mean_ndvi_value = -1
+        for n_cluster_bis in ndvi_by_cluster:
+            if n_cluster_bis in cluster_descending_order_position:
+                continue
+            if  ndvi_by_cluster[n_cluster_bis]['mean'] > max_mean_ndvi_value:
+                max_mean_ndvi_value = ndvi_by_cluster[n_cluster_bis]['mean']
+                n_cluster_max_mean_ndvi_value = n_cluster_bis
+        cluster_descending_order_position.append(n_cluster_max_mean_ndvi_value)
     fileformat = "GTiff"
     driver = gdal.GetDriverByName(fileformat)
     if not output_path:
@@ -242,34 +288,27 @@ def process(input_orthomosaic,
     var_path = Path(input_orthomosaic)
     base_name = var_path.stem
     file_ext = '.tif'
-    for kmeans_clusters in range(1, max_number_of_kmeans_clusters + 1):
-        print('Computing results for {} clusters ...'.format(str(kmeans_clusters)), flush=True)
-        compactness, labels, centers = cv.kmeans(input_values_cv, kmeans_clusters,
-                                                 None, criteria, 10, flags)
-        mse[kmeans_clusters] = compactness / len(valid_indexes)
-        str_mse = str(round(mse[kmeans_clusters] * 100))
-        dst_filename = (output_path + '/' + base_name + '_' + 'npc_'
-                        + str(number_of_pca_components) + '_nckms_' + str(kmeans_clusters)
-                        + '_mse_' + str_mse + file_ext)
+    for i_n_cluster in range(len(cluster_descending_order_position)):
+        n_cluster = cluster_descending_order_position[i_n_cluster]
+        str_mean = str(int(round(ndvi_by_cluster[n_cluster]['mean'] * 100)))
+        str_std = str(int(round(ndvi_by_cluster[n_cluster]['std'] * 100)))
+        dst_filename = (output_path + '/' + base_name + '_' + '_nckms_' + str(i_n_cluster + 1)
+                        + '_mean_' + str_mean + file_ext + '_std_' + str_std + file_ext)
         dst_filename = os.path.normpath(dst_filename)
         dst_ds = driver.Create(dst_filename, xsize=xSize, ysize=ySize, bands=1, eType=gdal.GDT_Byte)
         dst_ds.SetGeoTransform(orthomosaic_geotransform)
         dst_ds.SetProjection(projection)
         # np_raster = np.zeros((ySize, xSize), dtype=np.uint8)
-        np_raster = np.full((ySize, xSize), 0, dtype=np.uint8)
-        for i in range(len(valid_indexes)):
-            row = valid_indexes[i][0]
-            column = valid_indexes[i][1]
-            np_raster[row][column] = labels[i] + 1
-        # np_raster = cv.medianBlur(np_raster, median_filter_number_of_pixels)
-        # for i in range(len(invalid_indexes)):
-        #     row = invalid_indexes[i][0]
-        #     column = invalid_indexes[i][1]
-        #     np_raster[row][column] = 0
+        np_raster = np.full((ySize, xSize), 255, dtype=np.uint8)
+        for i_ndvi_value in range(len(ndvi_by_cluster[n_cluster]['values'])):
+            ndvi_value = ndvi_by_cluster[n_cluster]['values'][i_ndvi_value]
+            ndvi_row = ndvi_by_cluster[n_cluster]['values_rows'][i_ndvi_value]
+            ndvi_column = ndvi_by_cluster[n_cluster]['values_columns'][i_ndvi_value]
+            np_raster[ndvi_row][ndvi_column] = int(round(ndvi_value * 100))
         dst_ds.GetRasterBand(1).SetNoDataValue(0)
         dst_ds.GetRasterBand(1).WriteArray(np_raster)
         dst_ds = None
-        print('   ... Process finished', flush=True)
+    print('   ... Process finished', flush=True)
     return str_error
 
 
@@ -279,14 +318,7 @@ def clip_raster(input_raster,
                 output_path,
                 remove_existing):
     str_error = None
-    output_raster_suffix = ''
-    if not output_path:
-        output_path = os.path.dirname(os.path.abspath(input_raster))
-    raster_base_name = os.path.basename(input_raster).split('.')[0]
-    output_raster = output_path + '\\' + raster_base_name
-    # output_raster = os.path.splitext(input_raster)[0]
-    output_raster = output_raster + "_rois"
-    output_raster = output_raster + os.path.splitext(input_raster)[1]
+    output_raster = ""
     if not exists(input_shp):
         str_error = "Function clip_raster"
         str_error += "\nNot exists file: {}".format(input_shp)
@@ -295,6 +327,18 @@ def clip_raster(input_raster,
         str_error = "Function clip_raster"
         str_error += "\nNot exists file: {}".format(input_raster)
         return str_error, output_raster
+    shp_var_path = Path(input_shp)
+    shp_base_name = shp_var_path.stem
+    output_raster_suffix = ''
+    if not output_path:
+        output_path = os.path.dirname(os.path.abspath(input_raster))
+    raster_base_name = os.path.basename(input_raster).split('.')[0]
+    output_raster = output_path + '\\' + raster_base_name
+    # output_raster = os.path.splitext(input_raster)[0]
+    output_raster = output_raster + "_rois"
+    output_raster = output_raster + "_"
+    output_raster = output_raster + shp_base_name
+    output_raster = output_raster + os.path.splitext(input_raster)[1]
     # return str_error, output_raster
     if exists(output_raster):
         if not remove_existing:
