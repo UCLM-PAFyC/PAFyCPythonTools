@@ -346,7 +346,7 @@ def process(input_orthomosaic,
         cluster_index_field_name = "cl_idx_" + str(i_n_cluster + 1)
         cluster_index_Field = ogr.FieldDefn(cluster_index_field_name, ogr.OFTReal)
     feature_count = 0
-    number_of_pixels_in_grid = (grid_spacing * grid_spacing) / (gsd_x * gsd_y)
+    number_of_pixels_in_grid = int((grid_spacing * grid_spacing) / (gsd_x * gsd_y))
     for grid_column in output_grid_by_column_by_row:
         for grid_row in output_grid_by_column_by_row[grid_column]:
             featureDefn = outLayer.GetLayerDefn()
