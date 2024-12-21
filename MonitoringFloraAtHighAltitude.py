@@ -51,6 +51,7 @@ def process(input_orthomosaic,
             red_band_number,
             nir_band_number,
             minimum_ndvi,
+            minimum_nir_reflectance,
             grid_spacing,
             minimum_explained_variance,
             only_one_principal_component,
@@ -137,15 +138,18 @@ def process(input_orthomosaic,
     band_nir_data = band_nir.ReadAsArray()
     valid_indexes = []
     invalid_indexes = []
-    print('Filtering by NDVI value ...', flush=True)
+    print('Filtering by NIR Reflectance and NDVI value ...', flush=True)
     ndvi_valid_values_by_row = {}
     for row in columns_by_row:
         for j in range(len(columns_by_row[row])):
             column = columns_by_row[row][j]
-            red_value = band_red_data[row][column] * factor_to_reflectance
-            nir_value = band_nir_data[row][column] * factor_to_reflectance
-            ndvi_value = (nir_value - red_value) / (nir_value + red_value)
             index = [row, column]
+            nir_value = band_nir_data[row][column] * factor_to_reflectance
+            if nir_value < minimum_nir_reflectance:
+                invalid_indexes.append(index)
+                continue
+            red_value = band_red_data[row][column] * factor_to_reflectance
+            ndvi_value = (nir_value - red_value) / (nir_value + red_value)
             if ndvi_value >= minimum_ndvi:
                 valid_indexes.append(index)
                 if not row in ndvi_valid_values_by_row:
@@ -264,28 +268,28 @@ def process(input_orthomosaic,
     for n_cluster in ndvi_by_cluster:
         number_of_values = len(ndvi_by_cluster[n_cluster]['values'])
         ndvi_by_cluster[n_cluster]['mean'] = ndvi_by_cluster[n_cluster]['mean'] / float(number_of_values)
-        if number_of_values > 1:
-            ndvi_mean_value = ndvi_by_cluster[n_cluster]['mean']
-            for i_ndvi_value in range(len(ndvi_by_cluster[n_cluster]['values'])):
-                ndvi_value = ndvi_by_cluster[n_cluster]['values'][i_ndvi_value]
-                ndvi_column = ndvi_by_cluster[n_cluster]['values_columns'][i_ndvi_value]
-                ndvi_row = ndvi_by_cluster[n_cluster]['values_columns'][i_ndvi_value]
-                x_coord = ndvi_column * gsd_x + ulx + (gsd_x / 2.)  # add half the cell size
-                y_coord = uly - ndvi_row * gsd_y - (gsd_y / 2.)  # to centre the point
-                grid_column = math.floor((x_coord - math.floor(ulx)) / grid_spacing)
-                # grid_row = math.floor((x_coord - math.ceil(uly)) / grid_spacing)
-                grid_row = math.floor((math.ceil(uly) - y_coord) / grid_spacing)
-                if not grid_column in output_grid_by_column_by_row:
-                    output_grid_by_column_by_row[grid_column] = {}
-                if not grid_row in output_grid_by_column_by_row[grid_column]:
-                    output_grid_by_column_by_row[grid_column][grid_row] = {}
-                if not n_cluster in output_grid_by_column_by_row[grid_column][grid_row]:
-                    output_grid_by_column_by_row[grid_column][grid_row][n_cluster] = 0
-                output_grid_by_column_by_row[grid_column][grid_row][n_cluster] = (
-                        output_grid_by_column_by_row[grid_column][grid_row][n_cluster] + 1)
-                ndvi_diff_value = ndvi_value - ndvi_mean_value
-                ndvi_by_cluster[n_cluster]['std'] = ndvi_by_cluster[n_cluster]['std'] + ndvi_diff_value ** 2.
-            ndvi_by_cluster[n_cluster]['std'] = math.sqrt(ndvi_by_cluster[n_cluster]['std'] / number_of_values)
+        # if number_of_values > 1:
+        ndvi_mean_value = ndvi_by_cluster[n_cluster]['mean']
+        for i_ndvi_value in range(len(ndvi_by_cluster[n_cluster]['values'])):
+            ndvi_value = ndvi_by_cluster[n_cluster]['values'][i_ndvi_value]
+            ndvi_column = ndvi_by_cluster[n_cluster]['values_columns'][i_ndvi_value]
+            ndvi_row = ndvi_by_cluster[n_cluster]['values_rows'][i_ndvi_value]
+            x_coord = ndvi_column * gsd_x + ulx + (gsd_x / 2.)  # add half the cell size
+            y_coord = uly - ndvi_row * gsd_y - (gsd_y / 2.)  # to centre the point
+            grid_column = math.floor((x_coord - math.floor(ulx)) / grid_spacing)
+            # grid_row = math.floor((x_coord - math.ceil(uly)) / grid_spacing)
+            grid_row = math.floor((math.ceil(uly) - y_coord) / grid_spacing)
+            if not grid_column in output_grid_by_column_by_row:
+                output_grid_by_column_by_row[grid_column] = {}
+            if not grid_row in output_grid_by_column_by_row[grid_column]:
+                output_grid_by_column_by_row[grid_column][grid_row] = {}
+            if not n_cluster in output_grid_by_column_by_row[grid_column][grid_row]:
+                output_grid_by_column_by_row[grid_column][grid_row][n_cluster] = 0
+            output_grid_by_column_by_row[grid_column][grid_row][n_cluster] = (
+                    output_grid_by_column_by_row[grid_column][grid_row][n_cluster] + 1)
+            ndvi_diff_value = ndvi_value - ndvi_mean_value
+            ndvi_by_cluster[n_cluster]['std'] = ndvi_by_cluster[n_cluster]['std'] + ndvi_diff_value ** 2.
+        ndvi_by_cluster[n_cluster]['std'] = math.sqrt(ndvi_by_cluster[n_cluster]['std'] / number_of_values)
     cluster_descending_order_position = []
     position_in_vector_descending_order_by_cluster = {}
     for n_cluster in ndvi_by_cluster:
@@ -294,7 +298,7 @@ def process(input_orthomosaic,
         for n_cluster_bis in ndvi_by_cluster:
             if n_cluster_bis in cluster_descending_order_position:
                 continue
-            if  ndvi_by_cluster[n_cluster_bis]['mean'] > max_mean_ndvi_value:
+            if ndvi_by_cluster[n_cluster_bis]['mean'] > max_mean_ndvi_value:
                 max_mean_ndvi_value = ndvi_by_cluster[n_cluster_bis]['mean']
                 n_cluster_max_mean_ndvi_value = n_cluster_bis
         position_in_vector_descending_order_by_cluster[n_cluster_max_mean_ndvi_value] \
@@ -338,15 +342,23 @@ def process(input_orthomosaic,
     outLayer = outDataSource.CreateLayer("grid", orthomosaic_crs, ogr.wkbPolygon)
     idField = ogr.FieldDefn("id", ogr.OFTInteger)
     outLayer.CreateField(idField)
-    fractionCoverField = ogr.FieldDefn("frac_cover",ogr.OFTReal)
+    fractionCoverField = ogr.FieldDefn("frac_cover", ogr.OFTReal)
+    fractionCoverField.SetPrecision(2)
+    outLayer.CreateField(fractionCoverField)
     indexField = ogr.FieldDefn("index",ogr.OFTReal)
+    indexField.SetPrecision(2)
+    outLayer.CreateField(indexField)
     for i_n_cluster in range(len(cluster_descending_order_position)):
         cluster_percentage_field_name = "cl_fc_" + str(i_n_cluster + 1)
         cluster_percentage_Field = ogr.FieldDefn(cluster_percentage_field_name, ogr.OFTReal)
+        cluster_percentage_Field.SetPrecision(2)
+        outLayer.CreateField(cluster_percentage_Field)
         cluster_index_field_name = "cl_idx_" + str(i_n_cluster + 1)
         cluster_index_Field = ogr.FieldDefn(cluster_index_field_name, ogr.OFTReal)
+        cluster_index_Field.SetPrecision(2)
+        outLayer.CreateField(cluster_index_Field)
     feature_count = 0
-    number_of_pixels_in_grid = int((grid_spacing * grid_spacing) / (gsd_x * gsd_y))
+    number_of_pixels_in_grid = round((grid_spacing * grid_spacing) / (gsd_x * gsd_y))
     for grid_column in output_grid_by_column_by_row:
         for grid_row in output_grid_by_column_by_row[grid_column]:
             featureDefn = outLayer.GetLayerDefn()
@@ -376,25 +388,25 @@ def process(input_orthomosaic,
                 number_of_pixels_in_clusters = (number_of_pixels_in_clusters
                                                 + output_grid_by_column_by_row[grid_column][grid_row][n_cluster])
             # fraction_cover = (number_of_pixels_in_clusters * xSize * ySize) / (grid_spacing * grid_spacing) * 100.
-            fraction_cover = number_of_pixels_in_clusters / number_of_pixels_in_grid * 100.
+            fraction_cover = ( number_of_pixels_in_clusters / number_of_pixels_in_grid ) * 100.
             feature.SetField("frac_cover", fraction_cover)
-            index = 0
+            index = 0.
             for n_cluster in output_grid_by_column_by_row[grid_column][grid_row]:
                 ordered_cluster = position_in_vector_descending_order_by_cluster[n_cluster]
                 # percentage_pixels_in_cluster = (output_grid_by_column_by_row[grid_column][n_cluster]
                 #                                 / number_of_pixels_in_clusters * 100.)
-                percentage_pixels_in_cluster = (output_grid_by_column_by_row[grid_column][grid_row][n_cluster]
-                                                / number_of_pixels_in_grid * 100.)
-                index_in_cluster = weight_factor_by_cluster[ordered_cluster - 1] * percentage_pixels_in_cluster
+                percentage_pixels_in_cluster = float((output_grid_by_column_by_row[grid_column][grid_row][n_cluster]
+                                                / number_of_pixels_in_grid ) * 100.)
+                index_in_cluster = float(weight_factor_by_cluster[ordered_cluster] * percentage_pixels_in_cluster)
                 index = index + index_in_cluster
-                cluster_percentage_field_name = "cl_fc_" + str(ordered_cluster)
-                cluster_index_field_name = "cl_idx_" + str(ordered_cluster)
-                feature.SetField(cluster_percentage_field_name, cluster_percentage_field_name)
+                cluster_percentage_field_name = "cl_fc_" + str(ordered_cluster + 1)
+                cluster_index_field_name = "cl_idx_" + str(ordered_cluster + 1)
+                feature.SetField(cluster_percentage_field_name, percentage_pixels_in_cluster)
                 feature.SetField(cluster_index_field_name, index_in_cluster)
             feature.SetField("index", index)
             outLayer.CreateFeature(feature)
             feature = None
-        outDataSource = None
+    outDataSource = None
     print('   ... Process finished', flush=True)
     return str_error
 
@@ -491,6 +503,7 @@ def main():
     parser.add_argument("--red_band_number", type=int, help="Red band number, starting 1")
     parser.add_argument("--nir_band_number", type=int, help="Nir band number, starting 1")
     parser.add_argument("--minimum_ndvi", type=float, help="Minimmum NDVI, in range [-1,-1]")
+    parser.add_argument("--minimum_nir_reflectance", type=float, help="Minimmum NIR reflectance, in range [0,-1]")
     parser.add_argument("--minimum_explained_variance", type=float,
                         help="Minimmum explained variance by PCA components, in range [0,1]")
     parser.add_argument("--only_one_principal_component", type=int,
@@ -538,6 +551,10 @@ def main():
         parser.print_help()
         return
     minimum_ndvi = args.minimum_ndvi
+    if not args.minimum_nir_reflectance:
+        parser.print_help()
+        return
+    minimum_nir_reflectance = args.minimum_nir_reflectance
     if not args.grid_spacing:
         parser.print_help()
         return
@@ -582,6 +599,7 @@ def main():
                         red_band_number,
                         nir_band_number,
                         minimum_ndvi,
+                        minimum_nir_reflectance,
                         grid_spacing,
                         minimum_explained_variance,
                         only_one_principal_component,
