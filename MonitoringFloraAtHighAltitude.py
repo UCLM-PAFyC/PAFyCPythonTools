@@ -56,6 +56,9 @@ def process(input_orthomosaic,
             minimum_explained_variance,
             only_one_principal_component,
             weight_factor_by_cluster,
+            input_dsm,
+            input_dtm,
+            crop_minimum_height,
             output_path):
     str_error = None
     str_error = None
@@ -68,6 +71,91 @@ def process(input_orthomosaic,
         str_error = "Function process"
         str_error += "\nNot exists file: {}".format(input_orthomosaic)
         return str_error
+    dsm_ds = None
+    dsm_rb = None
+    dsm_crs = None
+    dsm_gsd_x = None
+    dsm_gsd_y = None
+    dsm_xSize = None
+    dsm_ySize = None
+    dsm_ulx = None
+    dsm_uly = None
+    dsm_lrx = None
+    dsm_lry = None
+    dsm_geotransform = None
+    dsm_data = None
+    dtm_ds = None
+    dtm_rb = None
+    dtm_crs = None
+    dtm_gsd_x = None
+    dtm_gsd_y = None
+    dtm_xSize = None
+    dtm_ySize = None
+    dtm_ulx = None
+    dtm_uly = None
+    dtm_lrx = None
+    dtm_lry = None
+    dtm_geotransform = None
+    dtm_data = None
+    if crop_minimum_height > 0.0:
+        if not exists(input_dsm):
+            str_error = "Function process"
+            str_error += "\nNot exists file: {}".format(input_dsm)
+            return str_error
+        if not exists(input_dtm):
+            str_error = "Function process"
+            str_error += "\nNot exists file: {}".format(input_dtm)
+            return str_error
+        try:
+            dsm_ds = gdal.Open(input_dsm)
+        except ValueError:
+            str_error = "Function process"
+            str_error += "\nError opening dataset file:\n{}".format(input_dsm)
+            return str_error
+        try:
+            dsm_rb = dsm_ds.GetRasterBand(1)
+        except ValueError:
+            str_error = "Function process"
+            str_error += "\nError getting raster band from file:\n{}".format(input_dsm)
+            return str_error
+        try:
+            dtm_ds = gdal.Open(input_dtm)
+        except ValueError:
+            str_error = "Function process"
+            str_error += "\nError opening dataset file:\n{}".format(input_dtm)
+            return str_error
+        try:
+            dtm_rb = dtm_ds.GetRasterBand(1)
+        except ValueError:
+            str_error = "Function process"
+            str_error += "\nError getting raster band from file:\n{}".format(input_dtm)
+            return str_error
+        dsm_crs = osr.SpatialReference()
+        dsm_crs.ImportFromWkt(dsm_ds.GetProjectionRef())
+        dsm_crs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        dsm_crs_wkt = dsm_crs.ExportToWkt()
+        dsm_xSize = dsm_ds.RasterXSize
+        dsm_ySize = dsm_ds.RasterYSize
+        dsm_geotransform = dsm_ds.GetGeoTransform()
+        dsm_gsd_x = abs(dsm_geotransform[1])
+        dsm_gsd_y = abs(dsm_geotransform[5])
+        dsm_ulx, dsm_xres, dsm_xskew, dsm_uly, dsm_yskew, dsm_yres = dsm_ds.GetGeoTransform()
+        dsm_lrx = dsm_ulx + (dsm_ds.RasterXSize * dsm_xres)
+        dsm_lry = dsm_uly + (dsm_ds.RasterYSize * dsm_yres)
+        dsm_data = dsm_rb.ReadAsArray()
+        dtm_crs = osr.SpatialReference()
+        dtm_crs.ImportFromWkt(dtm_ds.GetProjectionRef())
+        dtm_crs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        dtm_crs_wkt = dtm_crs.ExportToWkt()
+        dtm_xSize = dtm_ds.RasterXSize
+        dtm_ySize = dtm_ds.RasterYSize
+        dtm_geotransform = dtm_ds.GetGeoTransform()
+        dtm_gsd_x = abs(dtm_geotransform[1])
+        dtm_gsd_y = abs(dtm_geotransform[5])
+        dtm_ulx, dtm_xres, dtm_xskew, dtm_uly, dtm_yskew, dtm_yres = dtm_ds.GetGeoTransform()
+        dtm_lrx = dtm_ulx + (dtm_ds.RasterXSize * dtm_xres)
+        dtm_lry = dtm_uly + (dtm_ds.RasterYSize * dtm_yres)
+        dtm_data = dtm_rb.ReadAsArray()
     orthomosaic_ds = None
     try:
         orthomosaic_ds = gdal.Open(input_orthomosaic)
@@ -98,7 +186,13 @@ def process(input_orthomosaic,
     gsd = gsd_x
     projection = orthomosaic_ds.GetProjection()
     orthomosaic_crs = osr.SpatialReference()
+    transform_orthomosaic_to_dsm = None
+    transform_orthomosaic_to_dtm = None
     orthomosaic_crs.ImportFromWkt(orthomosaic_ds.GetProjectionRef())
+    orthomosaic_crs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    if crop_minimum_height > 0.0:
+        transform_orthomosaic_to_dsm = osr.CoordinateTransformation(orthomosaic_crs, dsm_crs)
+        transform_orthomosaic_to_dtm = osr.CoordinateTransformation(orthomosaic_crs, dtm_crs)
     orthomosaic_crs_wkt = orthomosaic_crs.ExportToWkt()
     ulx, xres, xskew, uly, yskew, yres = orthomosaic_ds.GetGeoTransform()
     lrx = ulx + (orthomosaic_ds.RasterXSize * xres)
@@ -150,14 +244,47 @@ def process(input_orthomosaic,
                 continue
             red_value = band_red_data[row][column] * factor_to_reflectance
             ndvi_value = (nir_value - red_value) / (nir_value + red_value)
-            if ndvi_value >= minimum_ndvi:
-                valid_indexes.append(index)
-                if not row in ndvi_valid_values_by_row:
-                    ndvi_valid_values_by_row[row] = {}
-                ndvi_valid_values_by_row[row][column] = ndvi_value
-            else:
+            if ndvi_value < minimum_ndvi:
                 invalid_indexes.append(index)
+                continue
+            if crop_minimum_height > 0.0:
+                x_coord = column * gsd_x + ulx + (gsd_x / 2.)  # add half the cell size
+                y_coord = uly - row * gsd_y - (gsd_y / 2.)  # to centre the point
+                x_coord_dsm = x_coord
+                y_coord_dsm = y_coord
+                x_coord_dsm, y_coord_dsm, _ = transform_orthomosaic_to_dsm.TransformPoint(x_coord_dsm, y_coord_dsm)
+                dsm_column = math.floor((x_coord_dsm - math.floor(dsm_ulx)) / dsm_gsd_x)
+                dsm_row = math.floor((math.ceil(dsm_uly) - y_coord_dsm) / dsm_gsd_y)
+                if dsm_column < 0 or dsm_column > dsm_xSize:
+                    invalid_indexes.append(index)
+                    continue
+                if dsm_row < 0 or dsm_row > dsm_ySize:
+                    invalid_indexes.append(index)
+                    continue
+                dsm_height = dsm_data[dsm_row][dsm_column]
+                x_coord_dtm = x_coord
+                y_coord_dtm = y_coord
+                x_coord_dtm, y_coord_dtm, _ = transform_orthomosaic_to_dtm.TransformPoint(x_coord_dtm, y_coord_dtm)
+                dtm_column = math.floor((x_coord_dtm - math.floor(dtm_ulx)) / dtm_gsd_x)
+                dtm_row = math.floor((math.ceil(dtm_uly) - y_coord_dtm) / dtm_gsd_y)
+                if dtm_column < 0 or dtm_column > dtm_xSize:
+                    invalid_indexes.append(index)
+                    continue
+                if dtm_row < 0 or dtm_row > dtm_ySize:
+                    continue
+                dtm_height = dtm_data[dtm_row][dtm_column]
+                crop_height = dsm_height - dtm_height
+                if crop_height < crop_minimum_height:
+                    invalid_indexes.append(index)
+                    continue
+            valid_indexes.append(index)
+            if not row in ndvi_valid_values_by_row:
+                ndvi_valid_values_by_row[row] = {}
+            ndvi_valid_values_by_row[row][column] = ndvi_value
     print('   ... Process finished', flush=True)
+    if crop_minimum_height > 0.0:
+        dsm_data = None
+        dtm_data = None
     data = np.zeros((len(valid_indexes), len(bands_to_use)))
     invalid_positions_in_valid_indexes = []
     for j in range(len(bands_to_use)):
@@ -512,6 +639,12 @@ def main():
                         help="Grid spacing, in meters")
     parser.add_argument("--weight_factor_by_cluster", nargs="+", type=float,
                         help="Weight factor by cluster")
+    parser.add_argument("--input_dsm", dest="input_dsm", action="store", type=str,
+                        help="DSM geotiff, or '' for no use it, crop_minimum_height == 0.0", default=None)
+    parser.add_argument("--input_dtm", dest="input_dtm", action="store", type=str,
+                        help="DTM geotiff, or '' for no use it, crop_minimum_height == 0.0", default=None)
+    parser.add_argument("--crop_minimum_height, or 0.0 for no use it", dest="crop_minimum_height", action="store", type=float,
+                        help="Crop minimum height, in meters", default=None)
     parser.add_argument("--output_path", type=str,
                         help="Output path or empty for multispectral orthomosaic path")
     args = parser.parse_args()
@@ -575,6 +708,27 @@ def main():
     if not args.weight_factor_by_cluster:
         parser.print_help()
     weight_factor_by_cluster = args.weight_factor_by_cluster
+    if not args.input_dsm:
+        parser.print_help()
+        return
+    if not args.input_dtm:
+        parser.print_help()
+        return
+    if args.crop_minimum_height == None:
+        parser.print_help()
+        return
+    crop_minimum_height = args.crop_minimum_height
+    input_dsm = ''
+    input_dtm = ''
+    if crop_minimum_height > 0.0:
+        input_dsm = args.input_dsm
+        if not exists(input_dsm):
+            print("Error:\nInput DSM does not exists:\n{}".format(input_dsm))
+            return
+        input_dtm = args.input_dtm
+        if not exists(input_dtm):
+            print("Error:\nInput DTM does not exists:\n{}".format(input_dtm))
+            return
     output_path = args.output_path
     if output_path:
         if not exists(output_path):
@@ -604,6 +758,9 @@ def main():
                         minimum_explained_variance,
                         only_one_principal_component,
                         weight_factor_by_cluster,
+                        input_dsm,
+                        input_dtm,
+                        crop_minimum_height,
                         output_path)
     if str_error:
         print("Error:\n{}".format(str_error))
