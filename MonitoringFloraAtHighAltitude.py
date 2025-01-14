@@ -232,7 +232,10 @@ def process(input_orthomosaic,
     band_nir_data = band_nir.ReadAsArray()
     valid_indexes = []
     invalid_indexes = []
-    print('Filtering by NIR Reflectance and NDVI value ...', flush=True)
+    if crop_minimum_height > 0.0:
+        print('Filtering by NIR Reflectance, NDVI value and crop height...', flush=True)
+    else:
+        print('Filtering by NIR Reflectance and NDVI value ...', flush=True)
     ndvi_valid_values_by_row = {}
     for row in columns_by_row:
         for j in range(len(columns_by_row[row])):
@@ -253,8 +256,8 @@ def process(input_orthomosaic,
                 x_coord_dsm = x_coord
                 y_coord_dsm = y_coord
                 x_coord_dsm, y_coord_dsm, _ = transform_orthomosaic_to_dsm.TransformPoint(x_coord_dsm, y_coord_dsm)
-                dsm_column = math.floor((x_coord_dsm - math.floor(dsm_ulx)) / dsm_gsd_x)
-                dsm_row = math.floor((math.ceil(dsm_uly) - y_coord_dsm) / dsm_gsd_y)
+                dsm_column = math.floor((x_coord_dsm - dsm_ulx) / dsm_gsd_x)
+                dsm_row = math.floor((dsm_uly - y_coord_dsm) / dsm_gsd_y)
                 if dsm_column < 0 or dsm_column > dsm_xSize:
                     invalid_indexes.append(index)
                     continue
@@ -265,8 +268,8 @@ def process(input_orthomosaic,
                 x_coord_dtm = x_coord
                 y_coord_dtm = y_coord
                 x_coord_dtm, y_coord_dtm, _ = transform_orthomosaic_to_dtm.TransformPoint(x_coord_dtm, y_coord_dtm)
-                dtm_column = math.floor((x_coord_dtm - math.floor(dtm_ulx)) / dtm_gsd_x)
-                dtm_row = math.floor((math.ceil(dtm_uly) - y_coord_dtm) / dtm_gsd_y)
+                dtm_column = math.floor((x_coord_dtm - dtm_ulx) / dtm_gsd_x)
+                dtm_row = math.floor((dtm_uly - y_coord_dtm) / dtm_gsd_y)
                 if dtm_column < 0 or dtm_column > dtm_xSize:
                     invalid_indexes.append(index)
                     continue
@@ -708,12 +711,6 @@ def main():
     if not args.weight_factor_by_cluster:
         parser.print_help()
     weight_factor_by_cluster = args.weight_factor_by_cluster
-    if not args.input_dsm:
-        parser.print_help()
-        return
-    if not args.input_dtm:
-        parser.print_help()
-        return
     if args.crop_minimum_height == None:
         parser.print_help()
         return
@@ -721,6 +718,12 @@ def main():
     input_dsm = ''
     input_dtm = ''
     if crop_minimum_height > 0.0:
+        if not args.input_dsm:
+            parser.print_help()
+            return
+        if not args.input_dtm:
+            parser.print_help()
+            return
         input_dsm = args.input_dsm
         if not exists(input_dsm):
             print("Error:\nInput DSM does not exists:\n{}".format(input_dsm))
