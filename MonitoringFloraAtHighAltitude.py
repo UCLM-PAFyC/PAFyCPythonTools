@@ -280,7 +280,7 @@ def process(input_orthomosaic,
                 if crop_minimum_height > 0.001 and crop_height < crop_minimum_height:
                     invalid_indexes.append(index)
                     continue
-                elif crop_minimum_height < 0.001 and crop_height > crop_minimum_height:
+                elif crop_minimum_height < 0.001 and crop_height > (-1. * crop_minimum_height):
                     invalid_indexes.append(index)
                     continue
             valid_indexes.append(index)
