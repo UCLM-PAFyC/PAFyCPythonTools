@@ -97,7 +97,7 @@ def process(input_orthomosaic,
     dtm_lry = None
     dtm_geotransform = None
     dtm_data = None
-    if crop_minimum_height > 0.0:
+    if crop_minimum_height > 0.001 or crop_minimum_height < -0.001:
         if not exists(input_dsm):
             str_error = "Function process"
             str_error += "\nNot exists file: {}".format(input_dsm)
@@ -250,7 +250,7 @@ def process(input_orthomosaic,
             if ndvi_value < minimum_ndvi:
                 invalid_indexes.append(index)
                 continue
-            if crop_minimum_height > 0.0:
+            if crop_minimum_height > 0.001 or crop_minimum_height < -0.001:
                 x_coord = column * gsd_x + ulx + (gsd_x / 2.)  # add half the cell size
                 y_coord = uly - row * gsd_y - (gsd_y / 2.)  # to centre the point
                 x_coord_dsm = x_coord
@@ -277,7 +277,10 @@ def process(input_orthomosaic,
                     continue
                 dtm_height = dtm_data[dtm_row][dtm_column]
                 crop_height = dsm_height - dtm_height
-                if crop_height < crop_minimum_height:
+                if crop_minimum_height > 0.001 and crop_height < crop_minimum_height:
+                    invalid_indexes.append(index)
+                    continue
+                elif crop_minimum_height < 0.001 and crop_height > crop_minimum_height:
                     invalid_indexes.append(index)
                     continue
             valid_indexes.append(index)
@@ -519,6 +522,8 @@ def process(input_orthomosaic,
                                                 + output_grid_by_column_by_row[grid_column][grid_row][n_cluster])
             # fraction_cover = (number_of_pixels_in_clusters * xSize * ySize) / (grid_spacing * grid_spacing) * 100.
             fraction_cover = ( number_of_pixels_in_clusters / number_of_pixels_in_grid ) * 100.
+            if fraction_cover > 100.:
+                fraction_cover = 100.
             feature.SetField("frac_cover", fraction_cover)
             index = 0.
             for n_cluster in output_grid_by_column_by_row[grid_column][grid_row]:
@@ -527,6 +532,8 @@ def process(input_orthomosaic,
                 #                                 / number_of_pixels_in_clusters * 100.)
                 percentage_pixels_in_cluster = float((output_grid_by_column_by_row[grid_column][grid_row][n_cluster]
                                                 / number_of_pixels_in_grid ) * 100.)
+                if percentage_pixels_in_cluster > 100.:
+                    percentage_pixels_in_cluster = 100.
                 index_in_cluster = float(weight_factor_by_cluster[ordered_cluster] * percentage_pixels_in_cluster)
                 index = index + index_in_cluster
                 cluster_percentage_field_name = "cl_fc_" + str(ordered_cluster + 1)
@@ -647,7 +654,7 @@ def main():
     parser.add_argument("--input_dtm", dest="input_dtm", action="store", type=str,
                         help="DTM geotiff, or '' for no use it, crop_minimum_height == 0.0", default=None)
     parser.add_argument("--crop_minimum_height, or 0.0 for no use it", dest="crop_minimum_height", action="store", type=float,
-                        help="Crop minimum height, in meters", default=None)
+                        help="Crop minimum height, in meters, positive for vegetation over value and negative for vegetation below value", default=None)
     parser.add_argument("--output_path", type=str,
                         help="Output path or empty for multispectral orthomosaic path")
     args = parser.parse_args()
@@ -717,7 +724,7 @@ def main():
     crop_minimum_height = args.crop_minimum_height
     input_dsm = ''
     input_dtm = ''
-    if crop_minimum_height > 0.0:
+    if crop_minimum_height > 0.001 or crop_minimum_height < -0.001:
         if not args.input_dsm:
             parser.print_help()
             return
